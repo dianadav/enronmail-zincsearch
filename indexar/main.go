@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"strings"
+	"sync"
 )
 
 // Estructura del correo
@@ -36,7 +37,7 @@ type Email struct {
 }
 
 func main() {
-
+	// Inicialización del perfil de rendimiento
 	////Prceso de rendimiento de la aplicación/////////////
 	cpu, err := os.Create("cpu.prof")
 	if err != nil {
@@ -63,7 +64,6 @@ func main() {
 	defer mutex.Close() // Cierra el archivo del perfil de mutex al finalizar
 
 	////////Fin prceso de rendimiento de la aplicación/////////
-
 	// Ruta base de la carpeta 'maildir'
 	//dir := "C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/enron_mail_20110402/maildir/"
 	dir := "C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/test/" // tres carpetas de prueba
@@ -72,63 +72,65 @@ func main() {
 	// Crear el archivo de salida NDJSON
 	out, err := os.Create(outputFile)
 	if err != nil {
-		fmt.Println("Error creando el archivo de salida:", err)
-		return
+		log.Fatalf("Error creando el archivo de salida: %v", err)
 	}
 	defer out.Close()
 
 	writer := bufio.NewWriter(out)
 
-	// Contador para asignar IDs únicos a los correos
-	var emailID int
+	// Canal para pasar los archivos a procesar
+	filesChan := make(chan string, runtime.NumCPU())
+	// Canal para recibir los correos procesados
+	resultsChan := make(chan *Email, runtime.NumCPU())
 
-	// Recorre todas las subcarpetas y archivos dentro de 'maildir'
+	// Grupo de espera para sincronizar las goroutines
+	var wg sync.WaitGroup
+
+	// Lanzar workers
+	numWorkers := runtime.NumCPU()
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go worker(filesChan, resultsChan, &wg)
+	}
+
+	// Goroutine para cerrar el canal de resultados cuando los workers terminen
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
+
+	// Lanzar la goroutine para escribir los resultados al archivo
+	go func() {
+		var emailID int
+		for email := range resultsChan {
+			emailID++
+			email.ID = emailID
+			// Convertir el objeto Email a JSON y escribirlo en el archivo
+			jsonData, err := json.Marshal(email)
+			if err == nil {
+				_, _ = writer.WriteString(fmt.Sprintf("{ \"index\": { \"_index\": \"emails\" } }\n%s\n", jsonData))
+			}
+		}
+		writer.Flush()
+		fmt.Println("Conversión a NDJSON completada. Archivo de salida:", outputFile)
+	}()
+
+	// Recorrer los archivos y enviarlos al canal
 	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() { // Procesar solo archivos, no carpetas
-			// Leer el contenido del archivo
-
-			content, err := ioutil.ReadFile(path)
-			if err != nil {
-				return err
-			}
-
-			// Procesar el contenido del archivo
-			email, err := parseEmail(string(content))
-			if err != nil {
-				fmt.Println("Error procesando el archivo:", path, "-", err)
-				return nil
-			}
-
-			// Asignar ID único al correo
-			emailID++
-			email.ID = emailID
-
-			// Convertir el objeto Email a JSON
-			jsonData, err := json.Marshal(email)
-			if err != nil {
-				return err
-			}
-
-			// Escribir la línea de metadatos de ZincSearch seguida del JSON del correo
-			_, err = writer.WriteString(fmt.Sprintf("{ \"index\": { \"_index\": \"emails\" } }\n%s\n", jsonData))
-			if err != nil {
-				return err
-			}
+		if !info.IsDir() {
+			filesChan <- path
 		}
 		return nil
 	})
+	close(filesChan) // Cerrar el canal para indicar que no habrá más archivos
 
 	if err != nil {
-		fmt.Println("Error recorriendo la carpeta:", err)
-		return
+		log.Fatalf("Error recorriendo la carpeta: %v", err)
 	}
 
-	writer.Flush()
-	fmt.Println("Conversión a NDJSON completada. Archivo de salida:", outputFile)
 	////Proceso de rendimiento de la aplicación/////////////
 	runtime.GC()
 	mem, err := os.Create("memory.prof")
@@ -158,6 +160,26 @@ func main() {
 
 }
 
+// Función worker que procesa los archivos
+func worker(filesChan <-chan string, resultsChan chan<- *Email, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for path := range filesChan {
+		content, err := ioutil.ReadFile(path)
+		if err != nil {
+			log.Printf("Error leyendo archivo %s: %v", path, err)
+			continue
+		}
+
+		email, err := parseEmail(string(content))
+		if err != nil {
+			log.Printf("Error procesando archivo %s: %v", path, err)
+			continue
+		}
+
+		resultsChan <- email
+	}
+}
+
 // parseEmail extrae las etiquetas y el cuerpo de un correo
 func parseEmail(content string) (*Email, error) {
 	email := &Email{}
@@ -165,13 +187,11 @@ func parseEmail(content string) (*Email, error) {
 
 	var bodyLines []string
 	for _, line := range lines {
-		// Ignorar líneas vacías
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 
-		// Verificar si la línea es una etiqueta
 		if strings.Contains(line, ":") {
 			parts := strings.SplitN(line, ":", 2)
 			key := strings.TrimSpace(parts[0])
@@ -261,12 +281,10 @@ func parseEmail(content string) (*Email, error) {
 				bodyLines = append(bodyLines, line)
 			}
 		} else {
-			// Si no es una etiqueta, es parte del cuerpo
 			bodyLines = append(bodyLines, line)
 		}
 	}
 
-	// Unir las líneas del cuerpo
 	email.Body = strings.Join(bodyLines, "\n")
 	return email, nil
 }
@@ -280,5 +298,3 @@ func parseEmail(content string) (*Email, error) {
 //go tool pprof -http=:8080 --nodefraction=0.01 --edgefraction=0.01 cpu.prof
 //go tool pprof -svg cpu.prof > cpu_graph.svg
 //go tool pprof -pdf cpu.prof > cpu_graph.pdf
-
-//curl http://localhost:4080/api/_bulk -i -u admin:Complexpass#123 --data-binary "@C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/indexar2/enron_emails.ndjson"
