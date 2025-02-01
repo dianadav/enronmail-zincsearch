@@ -76,7 +76,7 @@ func main() {
 	}
 	defer out.Close()
 
-	writer := bufio.NewWriter(out) // 1MB
+	writer := bufio.NewWriterSize(out, 1<<20) // 1MB
 
 	// Canal para pasar los archivos a procesar
 	filesChan := make(chan string, runtime.NumCPU()*2)
