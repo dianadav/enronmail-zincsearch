@@ -37,33 +37,36 @@ type Email struct {
 }
 
 func main() {
-	// Inicialización del perfil de rendimiento
+	////Prceso de rendimiento de la aplicación/////////////
 	cpu, err := os.Create("cpu.prof")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer cpu.Close()
+	defer cpu.Close() // Cierra el archivo al finalizar
 	pprof.StartCPUProfile(cpu)
 	defer pprof.StopCPUProfile()
 
-	// Habilitar el perfil de bloqueos
-	runtime.SetBlockProfileRate(1)
+	// Habilitar el perfil de bloqueos (captura contenciones de sincronización)
+	runtime.SetBlockProfileRate(1) // Habilita la captura de bloqueos (1 = captura todos los eventos)
 	block, err := os.Create("block.prof")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer block.Close()
+	defer block.Close() // Cierra el archivo del perfil de bloqueos al finalizar
 
-	// Habilitar el perfil de mutex
-	runtime.SetMutexProfileFraction(1)
+	// Habilitar el perfil de mutex (captura contenciones de bloqueos de mutex)
+	runtime.SetMutexProfileFraction(1) // Habilita la captura de mutex (1 = captura todos los eventos)
 	mutex, err := os.Create("mutex.prof")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer mutex.Close()
+	defer mutex.Close() // Cierra el archivo del perfil de mutex al finalizar
+
+	////////Fin prceso de rendimiento de la aplicación/////////
 
 	// Ruta base de la carpeta 'maildir'
-	dir := "C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/test/" // Tres carpetas de prueba
+	//dir := "C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/enron_mail_20110402/maildir/"
+	dir := "C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/test/" // tres carpetas de prueba
 	outputFile := "enron_emails.ndjson"
 
 	// Crear el archivo de salida NDJSON
@@ -73,19 +76,18 @@ func main() {
 	}
 	defer out.Close()
 
-	// Buffer de escritor de 1MB
-	writer := bufio.NewWriterSize(out, 1<<20) // 1MB
+	writer := bufio.NewWriter(out) // 1MB
 
 	// Canal para pasar los archivos a procesar
-	filesChan := make(chan string, runtime.NumCPU()*2) // Buffer ajustado
+	filesChan := make(chan string, runtime.NumCPU()*2)
 	// Canal para recibir los correos procesados
-	resultsChan := make(chan *Email, runtime.NumCPU()*2) // Buffer ajustado
+	resultsChan := make(chan *Email, runtime.NumCPU()*2)
 
 	// Grupo de espera para sincronizar las goroutines
 	var wg sync.WaitGroup
 
-	// Pool de workers
-	numWorkers := runtime.NumCPU() // Ajustado al número de núcleos
+	// Lanzar workers
+	numWorkers := runtime.NumCPU()
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
 		go worker(filesChan, resultsChan, &wg)
@@ -97,35 +99,19 @@ func main() {
 		close(resultsChan)
 	}()
 
-	// Goroutine para escribir los resultados al archivo en lotes
+	// Lanzar la goroutine para escribir los resultados al archivo
 	go func() {
-		batchSize := 1000 // Tamaño del lote
-		var batch []*Email
 		var emailID int
-
 		for email := range resultsChan {
 			emailID++
 			email.ID = emailID
-			batch = append(batch, email)
-
-			if len(batch) >= batchSize {
-				if err := writeBatch(writer, batch); err != nil {
-					log.Printf("Error escribiendo lote: %v", err)
-				}
-				batch = nil
+			// Convertir el objeto Email a JSON y escribirlo en el archivo
+			jsonData, err := json.Marshal(email)
+			if err == nil {
+				_, _ = writer.WriteString(fmt.Sprintf("{ \"index\": { \"_index\": \"emails\" } }\n%s\n", jsonData))
 			}
 		}
-
-		// Escribir el último lote si queda algo pendiente
-		if len(batch) > 0 {
-			if err := writeBatch(writer, batch); err != nil {
-				log.Printf("Error escribiendo último lote: %v", err)
-			}
-		}
-
-		if err := writer.Flush(); err != nil {
-			log.Printf("Error al hacer flush del writer: %v", err)
-		}
+		writer.Flush()
 		fmt.Println("Conversión a NDJSON completada. Archivo de salida:", outputFile)
 	}()
 
@@ -144,7 +130,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error recorriendo la carpeta: %v", err)
 	}
-
 	////Proceso de rendimiento de la aplicación/////////////
 	runtime.GC()
 	mem, err := os.Create("memory.prof")
@@ -155,35 +140,27 @@ func main() {
 	if err := pprof.WriteHeapProfile(mem); err != nil {
 		log.Fatal(err)
 	}
-
-	// Crear el perfil de goroutines
+	// Crear el perfil de goroutines (captura el estado actual de las goroutines activas)
 	goroutines, err := os.Create("goroutines.prof")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer goroutines.Close()
-	pprof.Lookup("goroutine").WriteTo(goroutines, 0)
+	defer goroutines.Close()                         // Cierra el archivo del perfil de goroutines al finalizar
+	pprof.Lookup("goroutine").WriteTo(goroutines, 0) // Guarda los datos de las goroutines activas
 
-	// Crear el perfil de bloqueos
-	pprof.Lookup("block").WriteTo(block, 0)
+	// Crear el perfil de bloqueos y escribirlo al archivo
+	pprof.Lookup("block").WriteTo(block, 0) // Guarda los datos de los bloqueos en el programa
 
-	// Crear el perfil de mutex
-	pprof.Lookup("mutex").WriteTo(mutex, 0)
+	// Crear el perfil de mutex y escribirlo al archivo
+	pprof.Lookup("mutex").WriteTo(mutex, 0) // Guarda los datos de contención de mutex
 
 	////Fin proceso de rendimiento de la aplicación/////////////
+
 }
 
 // Función worker que procesa los archivos
 func worker(filesChan <-chan string, resultsChan chan<- *Email, wg *sync.WaitGroup) {
 	defer wg.Done()
-
-	// Pool para reutilizar estructuras Email
-	emailPool := sync.Pool{
-		New: func() interface{} {
-			return &Email{}
-		},
-	}
-
 	for path := range filesChan {
 		content, err := ioutil.ReadFile(path)
 		if err != nil {
@@ -191,25 +168,22 @@ func worker(filesChan <-chan string, resultsChan chan<- *Email, wg *sync.WaitGro
 			continue
 		}
 
-		email := emailPool.Get().(*Email)
-		*email = Email{} // Reiniciar el struct antes de usarlo
-		email, err = parseEmail(string(content), email)
+		email, err := parseEmail(string(content))
 		if err != nil {
 			log.Printf("Error procesando archivo %s: %v", path, err)
-			emailPool.Put(email) // Devolver al pool si hay error
 			continue
 		}
 
 		resultsChan <- email
-		emailPool.Put(email) // Devolver al pool después de usar
 	}
 }
 
 // parseEmail extrae las etiquetas y el cuerpo de un correo
-func parseEmail(content string, email *Email) (*Email, error) {
+func parseEmail(content string) (*Email, error) {
+	email := &Email{}
 	lines := strings.Split(content, "\n")
-	var bodyLines []string
 
+	var bodyLines []string
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -313,21 +287,6 @@ func parseEmail(content string, email *Email) (*Email, error) {
 	return email, nil
 }
 
-// Escribe un lote de correos en el archivo NDJSON
-func writeBatch(writer *bufio.Writer, batch []*Email) error {
-	for _, email := range batch {
-		jsonData, err := json.Marshal(email)
-		if err != nil {
-			return err
-		}
-		_, err = writer.WriteString(fmt.Sprintf("{ \"index\": { \"_index\": \"emails\" } }\n%s\n", jsonData))
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 //go tool pprof -http=:8091 cpu.prof
 //go tool pprof -http=:8092 memory.prof
 //go tool pprof -http=:8093 goroutines.prof
@@ -337,3 +296,9 @@ func writeBatch(writer *bufio.Writer, batch []*Email) error {
 //go tool pprof -http=:8080 --nodefraction=0.01 --edgefraction=0.01 cpu.prof
 //go tool pprof -svg cpu.prof > cpu_graph.svg
 //go tool pprof -pdf cpu.prof > cpu_graph.pdf
+
+//curl http://localhost:4080/api/_bulk -i -u admin:Complexpass#123 --data-binary "@C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/indexar2/enron_emails.ndjson"
+//curl http://localhost:4080/api/_bulk -i -u admin:Complexpass#123 --data-binary "@C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/indexar2/enron_emails.ndjson"
+//C:\dev\zinc-search\release
+
+//curl http://localhost:4080/api/_bulk -i -u admin:Complexpass#123 --data-binary "@C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/indexar2/emails2.ndjson"
