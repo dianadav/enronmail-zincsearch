@@ -77,15 +77,15 @@ func main() {
 	writer := bufio.NewWriterSize(out, 1<<20) // 1MB
 
 	// Canal para pasar los archivos a procesar
-	filesChan := make(chan string, runtime.NumCPU()*4)
+	filesChan := make(chan string, runtime.NumCPU()*2) // Buffer ajustado
 	// Canal para recibir los correos procesados
-	resultsChan := make(chan *Email, runtime.NumCPU()*4)
+	resultsChan := make(chan *Email, runtime.NumCPU()*2) // Buffer ajustado
 
 	// Grupo de espera para sincronizar las goroutines
 	var wg sync.WaitGroup
 
 	// Pool de workers
-	numWorkers := runtime.NumCPU() * 4 // Ajusta según necesidades
+	numWorkers := runtime.NumCPU() // Ajustado al número de núcleos
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
 		go worker(filesChan, resultsChan, &wg)
@@ -109,17 +109,23 @@ func main() {
 			batch = append(batch, email)
 
 			if len(batch) >= batchSize {
-				writeBatch(writer, batch)
+				if err := writeBatch(writer, batch); err != nil {
+					log.Printf("Error escribiendo lote: %v", err)
+				}
 				batch = nil
 			}
 		}
 
 		// Escribir el último lote si queda algo pendiente
 		if len(batch) > 0 {
-			writeBatch(writer, batch)
+			if err := writeBatch(writer, batch); err != nil {
+				log.Printf("Error escribiendo último lote: %v", err)
+			}
 		}
 
-		writer.Flush()
+		if err := writer.Flush(); err != nil {
+			log.Printf("Error al hacer flush del writer: %v", err)
+		}
 		fmt.Println("Conversión a NDJSON completada. Archivo de salida:", outputFile)
 	}()
 
@@ -186,6 +192,7 @@ func worker(filesChan <-chan string, resultsChan chan<- *Email, wg *sync.WaitGro
 		}
 
 		email := emailPool.Get().(*Email)
+		*email = Email{} // Reiniciar el struct antes de usarlo
 		email, err = parseEmail(string(content), email)
 		if err != nil {
 			log.Printf("Error procesando archivo %s: %v", path, err)
@@ -194,14 +201,12 @@ func worker(filesChan <-chan string, resultsChan chan<- *Email, wg *sync.WaitGro
 		}
 
 		resultsChan <- email
+		emailPool.Put(email) // Devolver al pool después de usar
 	}
 }
 
 // parseEmail extrae las etiquetas y el cuerpo de un correo
 func parseEmail(content string, email *Email) (*Email, error) {
-	// Reiniciar el struct Email
-	*email = Email{}
-
 	lines := strings.Split(content, "\n")
 	var bodyLines []string
 
@@ -309,13 +314,18 @@ func parseEmail(content string, email *Email) (*Email, error) {
 }
 
 // Escribe un lote de correos en el archivo NDJSON
-func writeBatch(writer *bufio.Writer, batch []*Email) {
+func writeBatch(writer *bufio.Writer, batch []*Email) error {
 	for _, email := range batch {
 		jsonData, err := json.Marshal(email)
-		if err == nil {
-			_, _ = writer.WriteString(fmt.Sprintf("{ \"index\": { \"_index\": \"emails\" } }\n%s\n", jsonData))
+		if err != nil {
+			return err
+		}
+		_, err = writer.WriteString(fmt.Sprintf("{ \"index\": { \"_index\": \"emails\" } }\n%s\n", jsonData))
+		if err != nil {
+			return err
 		}
 	}
+	return nil
 }
 
 //go tool pprof -http=:8091 cpu.prof
