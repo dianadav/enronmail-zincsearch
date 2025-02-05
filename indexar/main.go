@@ -2,10 +2,13 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,6 +39,16 @@ type Email struct {
 	Body                    string `json:"body"`
 }
 
+const (
+	zincBaseURL  = "http://localhost:4080" // Base URL de ZincSearch
+	zincUser     = "admin"                 // Usuario
+	zincPassword = "Complexpass#123"       // Contraseña
+	index        = "emails2"
+	outputFile   = "enron_emails.ndjson"
+	dir          = "C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/enron_mail_20110402/maildir/"
+	//dir = "C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/test/" // tres carpetas de prueba
+)
+
 func main() {
 	////Prceso de rendimiento de la aplicación/////////////
 	cpu, err := os.Create("cpu.prof")
@@ -63,11 +76,6 @@ func main() {
 	defer mutex.Close() // Cierra el archivo del perfil de mutex al finalizar
 
 	////////Fin prceso de rendimiento de la aplicación/////////
-
-	// Ruta base de la carpeta 'maildir'
-	//dir := "C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/enron_mail_20110402/maildir/"
-	dir := "C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/test/" // tres carpetas de prueba
-	outputFile := "enron_emails.ndjson"
 
 	// Crear el archivo de salida NDJSON
 	out, err := os.Create(outputFile)
@@ -108,11 +116,12 @@ func main() {
 			// Convertir el objeto Email a JSON y escribirlo en el archivo
 			jsonData, err := json.Marshal(email)
 			if err == nil {
+				//postEmail(jsonData)
 				_, _ = writer.WriteString(fmt.Sprintf("{ \"index\": { \"_index\": \"emails\" } }\n%s\n", jsonData))
 			}
 		}
 		writer.Flush()
-		fmt.Println("Conversión a NDJSON completada. Archivo de salida:", outputFile)
+		fmt.Println("Se logró completar indexar todos los archivos")
 	}()
 
 	// Recorrer los archivos y enviarlos al canal
@@ -187,6 +196,7 @@ func parseEmail(content string) (*Email, error) {
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
+			bodyLines = append(bodyLines, line)
 			continue
 		}
 
@@ -287,6 +297,31 @@ func parseEmail(content string) (*Email, error) {
 	return email, nil
 }
 
+// Esta función realiza una petición y envía los datos.
+func postEmail(emailJson []byte) {
+	auth := zincUser + ":" + zincPassword
+	bas64encodedAuth := base64.StdEncoding.EncodeToString([]byte(auth))
+
+	zincUrl := zincBaseURL + "/api/" + index + "/_doc"
+
+	req, err := http.NewRequest("POST", zincUrl, bytes.NewBuffer(emailJson))
+	if err != nil {
+		log.Fatal("Error reading request. ", err)
+	}
+	// Set headers
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Basic "+bas64encodedAuth)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Safari/537.36")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+}
+
 //go tool pprof -http=:8091 cpu.prof
 //go tool pprof -http=:8092 memory.prof
 //go tool pprof -http=:8093 goroutines.prof
@@ -301,4 +336,7 @@ func parseEmail(content string) (*Email, error) {
 //curl http://localhost:4080/api/_bulk -i -u admin:Complexpass#123 --data-binary "@C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/indexar2/enron_emails.ndjson"
 //C:\dev\zinc-search\release
 
-//curl http://localhost:4080/api/_bulk -i -u admin:Complexpass#123 --data-binary "@C:/Users/diana/OneDrive/Escritorio/ProyectoEnron/indexar2/emails2.ndjson"
+//curl http://localhost:4080/api/_bulk -i -u admin:Complexpass#123 --data-binary "@C:/Users/diana/OneDrive/Documentos/GitHub/EnronMail-ZincSearch/indexar/emails1.ndjson"
+//C:\dev\zinc-search\release
+
+//curl http://localhost:4080/api/_bulk -i -u admin:Complexpass#123 --data-binary "@/home/diana/Documents/indexar/emails2.ndjson"
