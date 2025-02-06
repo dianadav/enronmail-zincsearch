@@ -20,10 +20,33 @@ provider "aws" {
   }
 }
 
+/*
 resource "aws_s3_bucket" "frontend_bucket" {
   bucket = "enron-frontend-data"
 }
-
 output "frontend_bucket_name" {
   value = aws_s3_bucket.frontend_bucket.id
+}
+*/
+
+module "frontend_bucket" {
+  source      = "../../../modules/s3_bucket"
+  bucket_name = "enron-frontend-data"
+}
+
+module "frontend_route53" {
+  source      = "../../../modules/route53"
+  domain_name = "frontend.local"
+}
+
+output "frontend_bucket_name" {
+  value = module.frontend_bucket.bucket_name
+}
+
+output "frontend_domain_name" {
+  value = module.frontend_route53.domain_name
+}
+
+output "frontend_zone_id" {
+  value = module.frontend_route53.zone_id
 }
