@@ -51,15 +51,6 @@
             >
           </div>
         </div>
-
-        <!-- PAGINACIÓN MANUAL
-    <div class="pagination">
-      <v-btn @click="goToFirstPage" :disabled="page === 1">Primera</v-btn>
-      <v-btn @click="goToPreviousPage" :disabled="page === 1">Anterior</v-btn>
-      <span>Página {{ page }} de {{ totalPages }}</span>
-      <v-btn @click="goToNextPage" :disabled="page === totalPages">Siguiente</v-btn>
-      <v-btn @click="goToLastPage" :disabled="page === totalPages">Última</v-btn>
-    </div>-->
       </v-card>
     </v-col>
     <v-col
@@ -110,35 +101,7 @@
           </v-row>
         </div>
       </div>
-      <!--<v-card
-        color="info"
-        elevation="0"
-        class="overflow-hidden pa-4 text-center"
-        v-if="selectedItem"
-      >
-        <v-row>
-          <v-col cols="12" lg="12" v-if="selectedItem">
-            <v-card elevation="0" class="bubble-shape-sm overflow-hidden bubble-warning">
-              <v-card-text class="pa-5">
-                <div class="d-flex align-center ga-4">
-                  <div>
-                    <v-row>
-                      <v-col cols="12" lg="12" class="justified-text">
-                        <p><strong>Body:</strong></p>
-                        <p v-html="formattedBody(selectedItem.body)"></p>
-                      </v-col>
-                    </v-row>
 
-                    <span class="text-subtitle-2 text-disabled font-weight-medium"
-                      >Total Income</span
-                    >
-                  </div>
-                </div>
-              </v-card-text>
-            </v-card>
-          </v-col>
-        </v-row>
-      </v-card>-->
     </v-col>
   </v-row>
 </template>

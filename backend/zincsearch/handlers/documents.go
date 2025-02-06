@@ -9,6 +9,12 @@ import (
 )
 
 func GetDocuments(w http.ResponseWriter, r *http.Request) {
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	index := r.URL.Query().Get("index") // El índice a consultar
 	if index == "" {
 		http.Error(w, "index query parameter is required", http.StatusBadRequest)
