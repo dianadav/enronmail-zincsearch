@@ -3,6 +3,7 @@ resource "aws_route53_zone" "frontend_zone" {
 }
 
 resource "aws_route53_record" "frontend_record" {
+  depends_on = [aws_route53_zone.frontend_zone]
   zone_id = aws_route53_zone.frontend_zone.zone_id
   name    = var.domain_name
   type    = "A"

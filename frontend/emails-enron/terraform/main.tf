@@ -17,6 +17,7 @@ provider "aws" {
   endpoints {
     s3       = "http://localhost:4566"
     dynamodb = "http://localhost:4566"
+    route53  = "http://localhost:4566"
   }
 }
 
@@ -47,6 +48,3 @@ output "frontend_domain_name" {
   value = module.frontend_route53.domain_name
 }
 
-output "frontend_zone_id" {
-  value = module.frontend_route53.zone_id
-}
