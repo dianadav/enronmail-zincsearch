@@ -20,10 +20,19 @@ provider "aws" {
   }
 }
 
-resource "aws_s3_bucket" "backend_bucket" {
-  bucket = "zinsearch-backend-data"
+
+module "backend_bucket" {
+  source      = "../../../modules/s3_bucket"
+  bucket_name = "zinsearch-backend-data"
 }
 
 output "backend_bucket_name" {
-  value = aws_s3_bucket.backend_bucket.id
+  value = module.backend_bucket.bucket_name
 }
+
+/*resource "aws_s3_bucket" "backend_bucket" {
+  bucket = "zinsearch-backend-data"
+}
+output "backend_bucket_name" {
+  value = aws_s3_bucket.backend_bucket.id
+}*/
