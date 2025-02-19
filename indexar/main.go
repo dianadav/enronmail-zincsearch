@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bufio"
+	//"bufio"
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
@@ -84,7 +84,7 @@ func main() {
 	}
 	defer out.Close()
 
-	writer := bufio.NewWriterSize(out, 1<<20) // 1MB
+	//writer := bufio.NewWriterSize(out, 1<<20) // 1MB
 
 	// Canal para pasar los archivos a procesar
 	filesChan := make(chan string, runtime.NumCPU()*2)
@@ -116,11 +116,11 @@ func main() {
 			// Convertir el objeto Email a JSON y escribirlo en el archivo
 			jsonData, err := json.Marshal(email)
 			if err == nil {
-				//postEmail(jsonData)
-				_, _ = writer.WriteString(fmt.Sprintf("{ \"index\": { \"_index\": \"emails\" } }\n%s\n", jsonData))
+				postEmail(jsonData)
+				//_, _ = writer.WriteString(fmt.Sprintf("{ \"index\": { \"_index\": \"emails\" } }\n%s\n", jsonData))
 			}
 		}
-		writer.Flush()
+		//writer.Flush()
 		fmt.Println("Se logró completar indexar todos los archivos")
 	}()
 
